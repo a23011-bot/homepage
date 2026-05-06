@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Portfolio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Navigation -->
+  <nav class="nav">
+    <div class="nav__logo">Portfolio</div>
+    <ul class="nav__links">
+      <li><a href="#about">About</a></li>
+      <li><a href="#works">Works</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero" id="home">
+    <div class="hero__content fade-in">
+      <p class="hero__label">Hello, I'm</p>
+      <h1 class="hero__name">Umasho</h1>
+      <p class="hero__tagline">Builder · Designer · Problem Solver</p>
+      <a href="#works" class="btn">View My Work</a>
+    </div>
+    <div class="hero__bg-glow"></div>
+  </section>
+
+  <!-- About -->
+  <section class="section" id="about">
+    <div class="container fade-in">
+      <h2 class="section__title">About</h2>
+      <div class="about__grid">
+        <div class="about__text">
+          <p>
+            テクノロジーとデザインの交差点に立ち、<br />
+            使いやすくて美しいプロダクトを作ることが好きです。<br />
+            Claude Code を使って、アイデアを素早く形にしています。
+          </p>
+        </div>
+        <div class="about__skills">
+          <span class="badge">Python</span>
+          <span class="badge">JavaScript</span>
+          <span class="badge">HTML / CSS</span>
+          <span class="badge">Claude Code</span>
+          <span class="badge">UI Design</span>
+          <span class="badge">データ分析</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Works -->
+  <section class="section section--alt" id="works">
+    <div class="container fade-in">
+      <h2 class="section__title">Works</h2>
+      <div class="works__grid">
+
+        <article class="card">
+          <div class="card__icon">🗂️</div>
+          <h3 class="card__title">在庫管理ツール</h3>
+          <p class="card__desc">Python で作った在庫の自動生成・集計スクリプト。CSV を読み込み、レポートを出力する。</p>
+          <div class="card__tags">
+            <span class="tag">Python</span>
+            <span class="tag">CSV</span>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card__icon">🌐</div>
+          <h3 class="card__title">このポートフォリオ</h3>
+          <p class="card__desc">Claude Code と一緒に 30 分で作ったシングルページサイト。HTML / CSS / JS のみ、ビルドツール不要。</p>
+          <div class="card__tags">
+            <span class="tag">HTML</span>
+            <span class="tag">CSS</span>
+            <span class="tag">JS</span>
+          </div>
+        </article>
+
+        <article class="card">
+          <div class="card__icon">🤖</div>
+          <h3 class="card__title">AI アシスタント実験</h3>
+          <p class="card__desc">Claude API を使った小さな社内ツール。ドキュメントに質問を投げると要約と回答を返す。</p>
+          <div class="card__tags">
+            <span class="tag">Claude API</span>
+            <span class="tag">Python</span>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact -->
+  <section class="section" id="contact">
+    <div class="container fade-in">
+      <h2 class="section__title">Contact</h2>
+      <p class="contact__lead">お仕事・コラボ・気軽な雑談、何でもどうぞ。</p>
+      <a href="mailto:sho37football@icloud.com" class="btn">メールを送る</a>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>&copy; 2026 Umasho. Built with Claude Code.</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
