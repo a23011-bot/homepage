@@ -136,10 +136,13 @@
     .g-art {
       width: 100%; height: 200px; border-radius: var(--radius) var(--radius) 0 0;
       border: 1px solid var(--border); border-bottom: none;
-      overflow: hidden; position: relative; background: #03030a;
+      overflow: hidden; position: relative; background: #1a1828;
     }
     .g-art svg { width: 100%; height: 100%; display: block; }
-    .g-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .g-art img {
+      width: 100%; height: 100%; object-fit: cover; display: block;
+      filter: brightness(1.35) contrast(1.08) saturate(0.9);
+    }
 
     /* Art loading shimmer */
     .art-loading {
@@ -368,16 +371,16 @@
 // ═══════════════════════════════════════════════════════════════════════
 // ── AI Image prompts (Pollinations.ai) ───────────────────────────────────
 const ART_PROMPTS = {
-  exterior:  'abandoned japanese psychiatric hospital building exterior night, heavy rain, dense fog, bare trees, dark dramatic sky, horror photography, cinematic',
-  lobby:     'abandoned hospital lobby interior, collapsed ceiling, debris, rusted reception desk, dim emergency lights, horror atmosphere, dark, cinematic',
-  corridor:  'long dark hospital corridor, flickering fluorescent lights, peeling walls, worn linoleum floor, perspective vanishing point, horror, eerie, cinematic',
-  room:      'abandoned hospital patient room, rusted iron bed, rumpled white sheets, moonlight through barred window, dust, horror atmosphere, cinematic',
-  basement:  'flooded hospital basement, dark murky water covering floor, bare concrete walls, single dangling light bulb, horror, dramatic shadows, cinematic',
-  operating: 'abandoned hospital operating room, old surgical table with leather restraints, overhead surgical lamp, dark horror atmosphere, stainless steel, cinematic',
-  chapel:    'underground stone chapel in abandoned hospital, rows of old wooden pews, altar with burnt out candles, gothic arches, eerie candlelight, horror, cinematic',
-  office:    'abandoned hospital director office, large wooden desk covered in scattered papers, dusty bookshelf, rain on dark window, horror atmosphere, cinematic',
-  garden:    'abandoned hospital courtyard at night, overgrown weeds, rusted wheelchair, full moon through clouds, eerie mist, horror atmosphere, cinematic',
-  dawn:      'dawn breaking outside abandoned hospital, orange pink purple sky, silhouette of hospital building, hope after darkness, cinematic atmospheric photography',
+  exterior:  'abandoned psychiatric hospital building at night, moonlight illuminating facade, fog, bare trees, visible architectural details, eerie atmosphere, cinematic photography',
+  lobby:     'abandoned hospital lobby interior, moonlight through broken ceiling, rusted reception desk, dust particles visible in light, detailed interior, cinematic',
+  corridor:  'hospital corridor, flickering fluorescent lights casting glow on walls, peeling paint, perspective vanishing point, visible floor and ceiling details, atmospheric horror, cinematic',
+  room:      'abandoned hospital patient room, old iron bed with rumpled sheets, pale moonlight through barred window illuminating room, dust, detailed interior, cinematic',
+  basement:  'flooded hospital basement, water reflecting single bare light bulb glow, concrete walls with details visible, dramatic chiaroscuro lighting, cinematic',
+  operating: 'abandoned hospital operating room, overhead surgical lamp illuminating old table with restraints, stainless steel instruments, detailed visible interior, cinematic',
+  chapel:    'underground chapel, rows of wooden pews lit by multiple candles, stone arches, altar with cross, warm candlelight illuminating details, atmospheric, cinematic',
+  office:    'abandoned director office, desk lamp or window light on scattered papers and books, detailed wooden desk, atmospheric horror, visible interior details, cinematic',
+  garden:    'abandoned hospital courtyard at night, moonlight on overgrown garden, rusted wheelchair, stone paths visible, eerie mist, atmospheric, cinematic photography',
+  dawn:      'dawn sunrise outside abandoned hospital, warm orange and pink sky, silhouette of building, dramatic light, cinematic atmospheric photography, hopeful',
 };
 
 // Portrait prompts for character appearances (horror reveals)
@@ -1836,7 +1839,7 @@ function renderChoices(choices) {
     btn.textContent = locked && c.needsMsg ? '🔒 ' + c.needsMsg : c.label;
     if (!locked) {
       btn.onclick = () => {
-        Audio.resume();
+        ensureAudio(); // 同期的にクリックイベント内で初期化（ブラウザのautoplay制限を回避）
         if (c.next === '__restart__') { init(); return; }
         goto(c.next);
       };
@@ -1946,7 +1949,6 @@ function renderScene(id) {
 // NAVIGATION
 // ═══════════════════════════════════════════════════════════════════════
 function goto(id) {
-  Audio.resume();
   clearTimers();
   skipFn = null;
   typing = false;
@@ -2029,17 +2031,16 @@ function init(fromSave) {
     }
   }
 
-  // Start drone on first interaction
-  const startAudio = () => {
-    Audio.init();
-    Audio.startDrone();
-    document.removeEventListener('click', startAudio);
-    document.removeEventListener('keydown', startAudio);
-  };
-  document.addEventListener('click', startAudio, { once: true });
-  document.addEventListener('keydown', startAudio, { once: true });
-
   renderScene('intro');
+}
+
+// ensureAudio: ボタンクリックの同期コンテキスト内で呼ぶことでautoplay制限を回避
+let _audioReady = false;
+function ensureAudio() {
+  if (_audioReady) { Audio.resume(); return; }
+  _audioReady = true;
+  Audio.init();
+  Audio.startDrone();
 }
 
 // ── Load save or start fresh ──
