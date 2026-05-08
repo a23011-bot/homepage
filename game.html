@@ -310,6 +310,50 @@
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition: none !important; }
     }
+
+    /* ── Save Modal ── */
+    #save-modal {
+      position: fixed; inset: 0; z-index: 90;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.82); backdrop-filter: blur(10px);
+      opacity: 0; pointer-events: none; transition: opacity 0.3s ease;
+    }
+    #save-modal.visible { opacity: 1; pointer-events: auto; }
+    .sm-panel {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.5rem;
+      width: min(500px, 94vw); max-height: 90vh; overflow-y: auto;
+    }
+    .sm-heading {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 1.25rem;
+    }
+    .sm-heading h2 { font-size: 1rem; font-weight: 700; letter-spacing: 0.05em; }
+    .sm-slot {
+      background: var(--bg-alt); border: 1px solid var(--border);
+      border-radius: 8px; padding: 1rem 1.1rem;
+      margin-bottom: 0.7rem;
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 0.75rem; transition: border-color var(--trans);
+    }
+    .sm-slot:hover { border-color: rgba(45,212,191,0.2); }
+    .sm-slot__info { flex: 1; min-width: 0; }
+    .sm-slot__num  { font-size: 0.67rem; color: var(--text-dim); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 0.2rem; }
+    .sm-slot__name { font-size: 0.95rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sm-slot__meta { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; }
+    .sm-slot__actions { display: flex; gap: 0.4rem; flex-shrink: 0; }
+    .sm-btn {
+      padding: 0.32rem 0.7rem; font-size: 0.76rem; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--surface2);
+      color: var(--text-muted); cursor: pointer; font-family: inherit;
+      transition: border-color var(--trans), color var(--trans), background var(--trans);
+      white-space: nowrap;
+    }
+    .sm-btn:hover          { border-color: var(--accent); color: var(--accent); }
+    .sm-btn--save          { border-color: var(--accent); color: var(--accent); }
+    .sm-btn--save:hover    { background: var(--accent); color: var(--bg); }
+    .sm-btn--del:hover     { border-color: var(--danger); color: var(--danger); }
+    .sm-note { font-size: 0.72rem; color: var(--text-dim); margin-top: 0.75rem; text-align: center; }
   </style>
 </head>
 <body>
@@ -329,6 +373,18 @@
   <div class="cc-sub"   id="cc-sub"></div>
 </div>
 
+<!-- Save Modal -->
+<div id="save-modal">
+  <div class="sm-panel">
+    <div class="sm-heading">
+      <h2 id="sm-heading">セーブデータ</h2>
+      <button class="sm-btn" onclick="closeSaveModal()">✕ 閉じる</button>
+    </div>
+    <div id="sm-slots"></div>
+    <p class="sm-note">※ プライベートモード（シークレット）では保存できません</p>
+  </div>
+</div>
+
 <!-- Header -->
 <header class="g-header">
   <div class="g-header__left">
@@ -343,7 +399,7 @@
   </div>
   <div class="g-header__right">
     <button class="g-icon-btn" onclick="useSedative()" id="sedBtn" style="display:none">💊 使う</button>
-    <button class="g-icon-btn" onclick="saveGame()">保存</button>
+    <button class="g-icon-btn" onclick="openSaveModal('save')">保存/ロード</button>
     <button class="g-icon-btn" onclick="confirmRestart()">最初から</button>
     <a href="index.html" class="g-icon-btn" style="text-decoration:none">← 戻る</a>
   </div>
@@ -686,7 +742,10 @@ const SCENES = {
       '封筒の中には一枚の紙が入っていた。「院長日記を見つけろ。黒崎の日記に、すべてが書いてある。」',
       '誰が送ってきたのか。なぜ自分に。答えを探しに、優は車を走らせた。',
     ],
-    choices: [{ label: '病院へ向かう', next: 'entrance_gate' }],
+    choices: [
+      { label: '病院へ向かう', next: 'entrance_gate' },
+      { label: 'セーブデータを読み込む', next: '__load__' },
+    ],
   },
 
   entrance_gate: {
@@ -1686,27 +1745,62 @@ const Sanity = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
-// SAVE
+// SAVE SLOTS (3スロット手動セーブ)
 // ═══════════════════════════════════════════════════════════════════════
-const Save = {
-  KEY: 'seishiro_v2',
-  save(G) {
+const SCENE_NAMES = {
+  intro:'プロローグ', entrance_gate:'病院正門', garden:'中庭',
+  lobby:'ロビー', reception_desk:'受付', patient_records:'患者台帳',
+  reception_drawer:'引き出し', east_hallway:'東廊下',
+  room_203:'203号室', room_203_window:'203号室（窓際）', room_207:'207号室',
+  west_hallway:'西廊下', pharmacy:'薬局室', storage_room:'物置',
+  stairwell_1f:'1F階段室', second_floor:'2F廊下',
+  director_office:'院長室', nurses_station:'ナースステーション', play_tape:'テープ再生',
+  basement_entrance:'地下入口', basement_main:'地下実験室',
+  examine_device:'装置調査', device_activated:'装置起動', experiment_log:'実験ログ',
+  basement_corridor:'地下廊下', underground_chapel:'地下礼拝室', pray:'祈り',
+  third_floor:'3F廊下', operating_room:'手術室', operating_search:'手術室調査',
+  chapel_3f:'礼拝堂3F', offer_crucifix:'十字架奉納',
+  fourth_floor:'4F廊下', lab_a:'最終実験室',
+  listen_device:'声を聞く', accept_device:'装置に従う',
+  destroy_device:'装置破壊', aftermath:'破壊後', final_walk:'最後の廊下',
+  end_best:'真エンド', end_true:'通常エンド',
+  end_bad_b:'BAD END', end_bad_water:'BAD END（水没）',
+  death_under_bed:'即死', death_surgery:'即死', sanity_death:'精神崩壊',
+};
+
+const CHAPTER_DISPLAY = ['プロローグ', '第一章 侵入', '第二章 深淵', '第三章 真相'];
+
+const SaveSlots = {
+  _key: (n) => `seishiro_v3_slot_${n}`,
+  COUNT: 3,
+
+  save(slot, gState) {
     try {
-      localStorage.setItem(this.KEY, JSON.stringify({
-        scene: G.scene,
-        chapter: G.chapter,
-        sanity: Sanity.value,
-        inventory: [...G.inventory],
-        flags: [...G.flags],
-        savedAt: new Date().toISOString(),
+      localStorage.setItem(this._key(slot), JSON.stringify({
+        scene:     gState.scene,
+        chapter:   gState.chapter,
+        sanity:    Sanity.value,
+        inventory: [...gState.inventory],
+        flags:     [...gState.flags],
+        sceneName: SCENE_NAMES[gState.scene] || gState.scene,
+        savedAt:   new Date().toISOString(),
       }));
-      showToast('保存しました');
-    } catch(e) { showToast('保存に失敗しました（プライベートモードでは使用不可）'); }
+      return true;
+    } catch(e) { return false; }
   },
-  load() {
-    try { return JSON.parse(localStorage.getItem(this.KEY)); } catch(e) { return null; }
+
+  load(slot) {
+    try { return JSON.parse(localStorage.getItem(this._key(slot))); }
+    catch(e) { return null; }
   },
-  clear() { localStorage.removeItem(this.KEY); },
+
+  clear(slot) { localStorage.removeItem(this._key(slot)); },
+
+  listAll() {
+    return Array.from({ length: this.COUNT }, (_, i) => this.load(i));
+  },
+
+  hasAny() { return this.listAll().some(Boolean); },
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1841,6 +1935,7 @@ function renderChoices(choices) {
       btn.onclick = () => {
         ensureAudio(); // 同期的にクリックイベント内で初期化（ブラウザのautoplay制限を回避）
         if (c.next === '__restart__') { init(); return; }
+        if (c.next === '__load__')   { openSaveModal('load'); return; }
         goto(c.next);
       };
     }
@@ -1966,7 +2061,6 @@ function goto(id) {
     if (scene && scene.chapter && scene.chapter !== prevChapter) {
       G.chapter = scene.chapter;
       updateChapterLabel();
-      Save.save(G);
       const titles = ['', '侵入', '深淵', '真相'];
       const subs = ['', '病院の中へ', '真実に近づく', '最後の選択'];
       showChapterCard(scene.chapter, titles[scene.chapter], subs[scene.chapter], () => renderScene(id));
@@ -1987,18 +2081,108 @@ function useSedative() {
   showToast('鎮静剤を使用した。精神力が回復した。');
 }
 
-function saveGame() {
-  Save.save(G);
-}
-
 function confirmRestart() {
   if (confirm('最初からやり直しますか？')) init();
+}
+
+// ── Save Modal ──
+let _saveMode = 'save';
+
+function openSaveModal(mode) {
+  _saveMode = mode || 'save';
+  document.getElementById('sm-heading').textContent =
+    _saveMode === 'save' ? 'セーブデータ' : 'ロードするデータを選択';
+  _renderSaveSlots();
+  document.getElementById('save-modal').classList.add('visible');
+}
+
+function closeSaveModal() {
+  document.getElementById('save-modal').classList.remove('visible');
+}
+
+function _renderSaveSlots() {
+  const container = document.getElementById('sm-slots');
+  container.innerHTML = '';
+  const all = SaveSlots.listAll();
+
+  all.forEach((data, i) => {
+    const div = document.createElement('div');
+    div.className = 'sm-slot';
+
+    if (data) {
+      const d = new Date(data.savedAt);
+      const dateStr = `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+      const chapterStr = CHAPTER_DISPLAY[data.chapter] || 'プロローグ';
+      const sceneName = data.sceneName || SCENE_NAMES[data.scene] || data.scene;
+      div.innerHTML = `
+        <div class="sm-slot__info">
+          <div class="sm-slot__num">スロット ${i+1}</div>
+          <div class="sm-slot__name">${sceneName}</div>
+          <div class="sm-slot__meta">${chapterStr} ｜ 精神力 ${data.sanity} ｜ ${dateStr}</div>
+        </div>
+        <div class="sm-slot__actions">
+          ${_saveMode === 'save' ? `<button class="sm-btn sm-btn--save" onclick="doSaveSlot(${i})">上書き保存</button>` : ''}
+          <button class="sm-btn" onclick="doLoadSlot(${i})">ロード</button>
+          <button class="sm-btn sm-btn--del" onclick="doDeleteSlot(${i})">削除</button>
+        </div>`;
+    } else {
+      div.innerHTML = `
+        <div class="sm-slot__info">
+          <div class="sm-slot__num">スロット ${i+1}</div>
+          <div class="sm-slot__name" style="color:var(--text-dim)">— 空き —</div>
+          <div class="sm-slot__meta"></div>
+        </div>
+        <div class="sm-slot__actions">
+          ${_saveMode === 'save' ? `<button class="sm-btn sm-btn--save" onclick="doSaveSlot(${i})">ここに保存</button>` : '<span style="font-size:0.72rem;color:var(--text-dim)">データなし</span>'}
+        </div>`;
+    }
+    container.appendChild(div);
+  });
+}
+
+function doSaveSlot(slot) {
+  const ok = SaveSlots.save(slot, G);
+  if (ok) {
+    showToast(`スロット ${slot+1} に保存しました`);
+    _renderSaveSlots();
+  } else {
+    showToast('保存に失敗しました（プライベートモードでは使用不可）');
+  }
+}
+
+function doLoadSlot(slot) {
+  const data = SaveSlots.load(slot);
+  if (!data) { showToast('データがありません'); return; }
+  closeSaveModal();
+  clearTimers();
+  skipFn = null;
+  typing = false;
+  G.scene     = data.scene;
+  G.chapter   = data.chapter || 0;
+  G.inventory = new Set(data.inventory || []);
+  G.flags     = new Set(data.flags || []);
+  Sanity.set(data.sanity ?? 100);
+  endEl.className = 'g-end';
+  endEl.textContent = '';
+  boxEl.classList.remove('g-box--danger', 'g-box--faded');
+  boxEl.style.animation = '';
+  updateChapterLabel();
+  renderInventory();
+  renderScene(G.scene);
+  showToast(`スロット ${slot+1} からロードしました`);
+}
+
+function doDeleteSlot(slot) {
+  if (!confirm(`スロット ${slot+1} のデータを削除しますか？`)) return;
+  SaveSlots.clear(slot);
+  _renderSaveSlots();
+  showToast(`スロット ${slot+1} を削除しました`);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════════════════
-function init(fromSave) {
+function init() {
   clearTimers();
   skipFn = null;
   typing = false;
@@ -2015,22 +2199,6 @@ function init(fromSave) {
   boxEl.style.animation = '';
   updateChapterLabel();
   renderInventory();
-
-  if (fromSave) {
-    const data = Save.load();
-    if (data) {
-      G.scene = data.scene;
-      G.chapter = data.chapter || 0;
-      G.inventory = new Set(data.inventory || []);
-      G.flags = new Set(data.flags || []);
-      Sanity.set(data.sanity ?? 100);
-      updateChapterLabel();
-      renderInventory();
-      renderScene(G.scene);
-      return;
-    }
-  }
-
   renderScene('intro');
 }
 
@@ -2043,14 +2211,7 @@ function ensureAudio() {
   Audio.startDrone();
 }
 
-// ── Load save or start fresh ──
-const saved = Save.load();
-if (saved) {
-  const resume = confirm('保存データが見つかりました。続きから始めますか？');
-  init(resume);
-} else {
-  init();
-}
+init();
 </script>
 </body>
 </html>
