@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#00001a">
+  <title>☄️ コメット — 宇宙の旅</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%; height: 100%;
+      background: #00001a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>'use strict';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+/* ─── Responsive sizing ─── */
+let W, H, DPR;
+function resize() {
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.min(window.innerWidth, 460);
+  H = window.innerHeight;
+  canvas.width  = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.scale(DPR, DPR);
+}
+resize();
+window.addEventListener('resize', () => { resize(); initStars(); });
+
+/* ─── Game state ─── */
+let state = 'start'; // 'start' | 'playing' | 'dead'
+let score = 0;
+let hiScore = +localStorage.getItem('cometHS') || 0;
+let frame = 0;
+let shakePow = 0, shakeX = 0, shakeY = 0;
+let flashA = 0;
+
+/* ─── Comet (player) ─── */
+let COMET_X;
+let comet = {};
+
+function resetComet() {
+  COMET_X = W * 0.28;
+  comet = { y: H * 0.44, vy: 0, radius: 13, trail: [] };
+}
+resetComet();
+
+const GRAVITY   = 0.43;
+const JUMP_VEL  = -9.8;
+const MAX_FALL  = 13;
+
+/* ─── Obstacles ─── */
+let pipes = [];
+let pipeSpd = 3;
+let nextPipeAt = 0;
+const PIPE_W  = 60;
+const GAP     = 155;
+const P_MARGIN = 88;
+
+function spawnPipe() {
+  const gapY = P_MARGIN + Math.random() * (H - P_MARGIN * 2 - GAP);
+  pipes.push({ x: W + PIPE_W + 20, gapY, passed: false });
+}
+
+function pipeInterval() {
+  return Math.max(72, 148 - score * 4);
+}
+
+/* ─── Starfield (3 parallax layers) ─── */
+const STAR_LAYERS = [
+  { n: 70,  spd: 0.15, rMin: 0.3, rMax: 1.1 },
+  { n: 35,  spd: 0.40, rMin: 0.8, rMax: 1.8 },
+  { n: 15,  spd: 0.90, rMin: 1.3, rMax: 2.6 },
+];
+let stars = [];
+
+function initStars() {
+  stars = [];
+  for (const L of STAR_LAYERS) {
+    for (let i = 0; i < L.n; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: L.rMin + Math.random() * (L.rMax - L.rMin),
+        spd: L.spd,
+        tw: Math.random() * Math.PI * 2,
+      });
+    }
+  }
+}
+initStars();
+
+/* ─── Particles ─── */
+let particles = [];
+
+function burst(n, x, y, hueA, hueB, spdMin, spdMax, sizeMin, sizeMax, gravity = 0.15, fade = 0.025) {
+  for (let i = 0; i < n; i++) {
+    const ang = Math.random() * Math.PI * 2;
+    const spd = spdMin + Math.random() * (spdMax - spdMin);
+    particles.push({
+      x, y,
+      vx: Math.cos(ang) * spd,
+      vy: Math.sin(ang) * spd,
+      life: 1,
+      size: sizeMin + Math.random() * (sizeMax - sizeMin),
+      hue: hueA + Math.random() * (hueB - hueA),
+      grav: gravity,
+      fade,
+    });
+  }
+}
+
+function addTrail() {
+  const ang = Math.PI + comet.vy * 0.07 + (Math.random() - 0.5) * 0.6;
+  const spd = 1.5 + Math.random() * 2.8;
+  particles.push({
+    x: COMET_X - 2, y: comet.y,
+    vx: Math.cos(ang) * spd,
+    vy: Math.sin(ang) * spd - comet.vy * 0.25,
+    life: 1, size: 3 + Math.random() * 4.5,
+    hue: 20 + Math.random() * 45, grav: 0.04, fade: 0.048,
+  });
+}
+
+/* ─── Web Audio ─── */
+let AC = null;
+function ac() {
+  if (!AC) AC = new (window.AudioContext || window.webkitAudioContext)();
+  return AC;
+}
+function tone(freq, type, dur, vol = 0.22, fEnd) {
+  try {
+    const a = ac(), o = a.createOscillator(), g = a.createGain();
+    o.connect(g); g.connect(a.destination);
+    o.type = type;
+    o.frequency.setValueAtTime(freq, a.currentTime);
+    if (fEnd != null)
+      o.frequency.exponentialRampToValueAtTime(fEnd, a.currentTime + dur);
+    g.gain.setValueAtTime(vol, a.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, a.currentTime + dur);
+    o.start(a.currentTime); o.stop(a.currentTime + dur);
+  } catch (_) {}
+}
+const sfx = {
+  jump  : () => tone(300, 'sine', 0.12, 0.18, 520),
+  score : () => tone(580, 'sine', 0.15, 0.22, 920),
+  die   : () => {
+    tone(220, 'sawtooth', 0.35, 0.28, 55);
+    setTimeout(() => tone(110, 'sawtooth', 0.5, 0.28, 40), 160);
+  },
+};
+
+/* ─── Collision ─── */
+function isDead() {
+  const r = comet.radius - 3;
+  if (comet.y - r < 0 || comet.y + r > H) return true;
+  for (const p of pipes) {
+    if (COMET_X + r > p.x && COMET_X - r < p.x + PIPE_W) {
+      if (comet.y - r < p.gapY || comet.y + r > p.gapY + GAP) return true;
+    }
+  }
+  return false;
+}
+
+/* ─── Input ─── */
+function onTap() {
+  if (state === 'start') {
+    state = 'playing';
+    frame = 0; score = 0;
+    pipes = []; particles = [];
+    nextPipeAt = 80; pipeSpd = 3;
+    resetComet();
+    comet.vy = JUMP_VEL;
+    sfx.jump();
+    return;
+  }
+  if (state === 'dead') {
+    if (frame > 55) { state = 'start'; frame = 0; particles = []; resetComet(); }
+    return;
+  }
+  comet.vy = JUMP_VEL;
+  burst(8, COMET_X, comet.y, 180, 240, 3, 8, 3, 6, 0.18, 0.03);
+  sfx.jump();
+}
+
+canvas.addEventListener('touchstart', e => { e.preventDefault(); onTap(); }, { passive: false });
+canvas.addEventListener('mousedown', e => { e.preventDefault(); onTap(); });
+
+/* ─── Update ─── */
+function update() {
+  frame++;
+  shakePow *= 0.82;
+  shakeX = (Math.random() - 0.5) * shakePow;
+  shakeY = (Math.random() - 0.5) * shakePow;
+  if (flashA > 0) flashA -= 0.045;
+
+  // Stars
+  const moveMul = state === 'playing' ? pipeSpd : 2;
+  for (const s of stars) {
+    s.x -= s.spd * moveMul * 0.38;
+    s.tw += 0.038;
+    if (s.x < -4) { s.x = W + 4; s.y = Math.random() * H; }
+  }
+
+  // Particles
+  particles = particles.filter(p => p.life > 0);
+  for (const p of particles) {
+    p.x += p.vx; p.y += p.vy;
+    p.vy += p.grav; p.vx *= 0.97;
+    p.life -= p.fade;
+  }
+
+  if (state === 'start') {
+    comet.y = H * 0.44 + Math.sin(frame * 0.034) * 18;
+    if (frame % 2 === 0) addTrail();
+    return;
+  }
+
+  if (state === 'dead') {
+    if (comet.y < H + 120) {
+      comet.vy = Math.min(comet.vy + GRAVITY, MAX_FALL);
+      comet.y += comet.vy;
+    }
+    return;
+  }
+
+  /* ── PLAYING ── */
+  comet.vy = Math.min(comet.vy + GRAVITY, MAX_FALL);
+  comet.y += comet.vy;
+
+  // Trail history
+  comet.trail.push({ x: COMET_X, y: comet.y, life: 1 });
+  if (comet.trail.length > 24) comet.trail.shift();
+  comet.trail.forEach(t => t.life -= 0.042);
+
+  if (frame % 2 === 0) addTrail();
+
+  // Pipes
+  if (frame >= nextPipeAt) { spawnPipe(); nextPipeAt = frame + pipeInterval(); }
+  pipes = pipes.filter(p => p.x > -PIPE_W - 20);
+  for (const p of pipes) {
+    p.x -= pipeSpd;
+    if (!p.passed && p.x + PIPE_W < COMET_X - comet.radius) {
+      p.passed = true; score++;
+      pipeSpd = 3 + score * 0.09;
+      burst(18, COMET_X, comet.y, 90, 160, 2, 7, 3, 5);
+      sfx.score();
+      if (score > hiScore) { hiScore = score; localStorage.setItem('cometHS', hiScore); }
+    }
+  }
+
+  // Death
+  if (isDead()) {
+    state = 'dead'; frame = 0;
+    shakePow = 20; flashA = 0.7;
+    burst(45, COMET_X, comet.y, 10, 60, 2, 12, 4, 9, 0.18, 0.022);
+    sfx.die();
+    comet.trail = [];
+  }
+}
+
+/* ─── Draw helpers ─── */
+function rRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function txt(str, x, y, sz, col, align = 'center', shadow = false) {
+  ctx.font = `bold ${sz}px 'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif`;
+  ctx.textAlign = align;
+  ctx.textBaseline = 'middle';
+  if (shadow) { ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillText(str, x + 2, y + 2); }
+  ctx.fillStyle = col;
+  ctx.fillText(str, x, y);
+}
+
+function panel(x, y, w, h) {
+  rRect(x, y, w, h, 18);
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  g.addColorStop(0, 'rgba(12,12,48,0.96)');
+  g.addColorStop(1, 'rgba(4,4,22,0.97)');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = 'rgba(100,100,210,0.45)';
+  ctx.lineWidth = 1.5; ctx.stroke();
+}
+
+/* ─── Draw obstacles ─── */
+function drawPipes() {
+  for (const p of pipes) {
+    [[0, p.gapY, false], [p.gapY + GAP, H - p.gapY - GAP, true]].forEach(([y, h, top]) => {
+      if (h <= 0) return;
+      // Body
+      const bg = ctx.createLinearGradient(p.x, 0, p.x + PIPE_W, 0);
+      bg.addColorStop(0,   '#323268');
+      bg.addColorStop(0.4, '#5050a0');
+      bg.addColorStop(1,   '#282858');
+      ctx.fillStyle = bg;
+      rRect(p.x, y, PIPE_W, h, top ? [0, 0, 10, 10] : [10, 10, 0, 0]);
+      ctx.fill();
+      // Highlight strip
+      ctx.fillStyle = 'rgba(160,160,255,0.18)';
+      ctx.fillRect(p.x + 7, y, 9, h);
+      // Cap
+      const capH = 30, capY = top ? y : y + h - capH;
+      const cg = ctx.createLinearGradient(p.x - 6, 0, p.x + PIPE_W + 6, 0);
+      cg.addColorStop(0,   '#5050b0');
+      cg.addColorStop(0.4, '#8080d0');
+      cg.addColorStop(1,   '#4040a0');
+      ctx.fillStyle = cg;
+      rRect(p.x - 6, capY, PIPE_W + 12, capH, 9);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(130,130,255,0.32)';
+      ctx.lineWidth = 1.5; ctx.stroke();
+    });
+  }
+}
+
+/* ─── Draw comet ─── */
+function drawComet() {
+  // Trail glow
+  comet.trail.forEach(t => {
+    if (t.life <= 0) return;
+    const a = t.life * 0.32;
+    const r = comet.radius * t.life;
+    const g = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, r * 2.2);
+    g.addColorStop(0, `rgba(255,200,60,${a})`);
+    g.addColorStop(1, `rgba(255,80,0,0)`);
+    ctx.beginPath(); ctx.arc(t.x, t.y, r * 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = g; ctx.fill();
+  });
+
+  // Outer glow
+  const glow = ctx.createRadialGradient(COMET_X, comet.y, 0, COMET_X, comet.y, comet.radius * 3.8);
+  glow.addColorStop(0, 'rgba(255,230,100,0.42)');
+  glow.addColorStop(1, 'rgba(255,100,0,0)');
+  ctx.beginPath(); ctx.arc(COMET_X, comet.y, comet.radius * 3.8, 0, Math.PI * 2);
+  ctx.fillStyle = glow; ctx.fill();
+
+  // Core
+  const core = ctx.createRadialGradient(COMET_X - 4, comet.y - 4, 0, COMET_X, comet.y, comet.radius);
+  core.addColorStop(0,    '#ffffff');
+  core.addColorStop(0.25, '#ffffc0');
+  core.addColorStop(0.65, '#ff9900');
+  core.addColorStop(1,    '#ff4400');
+  ctx.beginPath(); ctx.arc(COMET_X, comet.y, comet.radius, 0, Math.PI * 2);
+  ctx.fillStyle = core; ctx.fill();
+}
+
+/* ─── Main draw ─── */
+function draw() {
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // Background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0,   '#00001c');
+  bg.addColorStop(0.5, '#000c2a');
+  bg.addColorStop(1,   '#00001c');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  for (const s of stars) {
+    const a = 0.35 + 0.55 * ((Math.sin(s.tw) + 1) * 0.5);
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(255,255,255,${a})`; ctx.fill();
+  }
+
+  // Particles
+  for (const p of particles) {
+    const a = Math.max(0, p.life);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, Math.max(0.4, p.size * p.life), 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${p.hue},95%,68%,${a})`; ctx.fill();
+  }
+
+  // Pipes
+  drawPipes();
+
+  // Comet
+  if (state !== 'dead' || comet.y < H + 80) drawComet();
+
+  // Flash overlay
+  if (flashA > 0) {
+    ctx.fillStyle = `rgba(255,110,50,${Math.min(flashA, 0.55)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  /* ── START screen ── */
+  if (state === 'start') {
+    ctx.fillStyle = 'rgba(0,0,22,0.58)';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.save();
+    ctx.shadowColor = '#88aaff'; ctx.shadowBlur = 42;
+    txt('☄️', W / 2, H * 0.27, 78, '#fff');
+    ctx.restore();
+    ctx.save();
+    ctx.shadowColor = '#aaddff'; ctx.shadowBlur = 22;
+    txt('コメット', W / 2, H * 0.38, 48, '#ffffff', 'center', true);
+    ctx.restore();
+    txt('宇宙の旅', W / 2, H * 0.455, 22, '#99bbee');
+
+    const pulse = 0.6 + 0.4 * Math.sin(frame * 0.08);
+    txt('タップしてスタート', W / 2, H * 0.62, 20, `rgba(255,255,255,${pulse})`);
+    txt('タップでジャンプ ✦ 隕石を避けろ！', W / 2, H * 0.69, 14, '#6680aa');
+
+    if (hiScore > 0) {
+      const pw = 210, ph = 56, px = (W - pw) / 2, py = H * 0.78;
+      panel(px, py, pw, ph);
+      txt('🏆 最高スコア', W / 2, py + 16, 13, '#ffcc44');
+      txt(hiScore.toString(), W / 2, py + 37, 22, '#fff', 'center', true);
+    }
+
+  /* ── PLAYING HUD ── */
+  } else if (state === 'playing') {
+    ctx.save();
+    ctx.shadowColor = '#fff'; ctx.shadowBlur = 16;
+    txt(score.toString(), W / 2, 54, 46, '#fff', 'center', true);
+    ctx.restore();
+    if (hiScore > 0)
+      txt(`最高 ${hiScore}`, W / 2, 90, 14, 'rgba(170,195,230,0.7)');
+
+  /* ── DEAD screen ── */
+  } else if (state === 'dead') {
+    ctx.fillStyle = 'rgba(0,0,22,0.72)';
+    ctx.fillRect(0, 0, W, H);
+
+    const pw = W * 0.82, ph = 290;
+    const px = (W - pw) / 2, py = H / 2 - ph / 2;
+    panel(px, py, pw, ph);
+
+    txt('💥 ゲームオーバー', W / 2, py + 52, 22, '#ff7766', 'center', true);
+    txt('スコア', W / 2, py + 100, 15, '#8899bb');
+    txt(score.toString(), W / 2, py + 143, 60, '#fff', 'center', true);
+
+    const newRec = score > 0 && score >= hiScore;
+    if (newRec) {
+      const t = 0.7 + 0.3 * Math.sin(frame * 0.15);
+      txt(`🏆 新記録！`, W / 2, py + 205, 20, `rgba(255,215,50,${t})`);
+    } else {
+      txt(`最高スコア: ${hiScore}`, W / 2, py + 205, 16, '#ffcc44');
+    }
+
+    if (frame > 55) {
+      const p = 0.55 + 0.45 * Math.sin(frame * 0.1);
+      txt('タップしてもどる', W / 2, py + 255, 17, `rgba(255,255,255,${p})`);
+    }
+  }
+
+  ctx.restore();
+}
+
+/* ─── Game loop ─── */
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+loop();
+</script>
+</body>
+</html>
